@@ -1,0 +1,25 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  iso:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build ISO
+        run: |
+          echo "Building SwellOS ISO for release ${{ github.ref_name }}..."
+          # Placeholder: in the future, this will call swell-build iso
+          mkdir -p dist
+          echo "SwellOS ${{ github.ref_name }}" > dist/RELEASE
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
