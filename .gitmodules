@@ -1,0 +1,18 @@
+[submodule "kernel"]
+	path = kernel
+	url = https://github.com/SwellOS/kernel.git
+[submodule "packages"]
+	path = packages
+	url = https://github.com/SwellOS/packages.git
+[submodule "sbpm"]
+	path = sbpm
+	url = https://github.com/SwellOS/sbpm.git
+[submodule "swell-installer"]
+	path = swell-installer
+	url = https://github.com/SwellOS/swell-installer.git
+[submodule "swell-build"]
+	path = swell-build
+	url = https://github.com/SwellOS/swell-build.git
+[submodule "docs"]
+	path = docs
+	url = https://github.com/SwellOS/docs.git
