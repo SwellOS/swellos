@@ -1,0 +1,90 @@
+name: Build ISO
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'ISO version label'
+        default: '0.1-dev'
+jobs:
+  build-iso:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            build-essential bc bison flex libelf-dev libssl-dev \
+            squashfs-tools xorriso grub-pc-bin grub-common cpio \
+            autoconf automake libtool pkg-config
+      - name: Kernel config
+        uses: actions/checkout@v4
+        with:
+          repository: SwellOS/kernel
+          path: swell-kernel
+      - name: Download kernel
+        run: |
+          curl -sL 'https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.tar.xz' | tar xJf -
+      - name: Build kernel
+        run: |
+          cd linux-6.12
+          cp ../swell-kernel/config/x86_64/config-6.x-swell .config
+          make olddefconfig
+          make -j$(nproc) bzImage
+          mkdir -p /tmp/kernel-output
+          cp arch/x86_64/boot/bzImage /tmp/kernel-output/
+      - name: Checkout swell-build
+        uses: actions/checkout@v4
+        with:
+          repository: SwellOS/swell-build
+          path: swell-build
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build swell-build
+        run: cd swell-build && cargo build --release
+      - name: Busybox
+        run: |
+          sudo apt-get install -y -qq busybox-static
+          cp /bin/busybox /tmp/busybox-static
+      - name: Rootfs
+        run: |
+          mkdir -p /tmp/iso-rootfs/{bin,sbin,etc,dev,proc,sys,run,tmp,var/lib,var/log,usr/bin,usr/sbin,root,etc/init.d}
+          cp /tmp/busybox-static /tmp/iso-rootfs/bin/busybox
+          for a in sh mount umount sleep cat echo ls mkdir cp mv rm ps kill dmesg vi clear login adduser deluser passwd reboot poweroff hostname ping ifconfig ip sed grep awk cut sort uniq head tail wc find xargs tar gzip; do
+            ln -sf busybox /tmp/iso-rootfs/bin/$a
+          done
+          ln -sf ../bin/busybox /tmp/iso-rootfs/sbin/init
+          echo -e '::sysinit:/etc/init.d/rcS\n::askfirst:-/bin/sh' > /tmp/iso-rootfs/etc/inittab
+          echo -e '#!/bin/sh\nmount -t proc none /proc\nmount -t sysfs none /sys\nmount -t devtmpfs none /dev\necho "Welcome to SwellOS"' > /tmp/iso-rootfs/etc/init.d/rcS
+          chmod 755 /tmp/iso-rootfs/etc/init.d/rcS
+      - name: Build ISO
+        run: |
+          VERSION="${{ github.event.inputs.version || '0.1-dev' }}"
+          cd swell-build
+          ./target/release/swell-build iso \
+            --kernel /tmp/kernel-output/bzImage \
+            --root /tmp/iso-rootfs \
+            --version "$VERSION" \
+            --label "SWELLOS_LIVE" \
+            --output "/tmp/swellos-$VERSION-x86_64.iso" \
+            --force
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: swellos-iso
+          path: /tmp/swellos-*.iso
+  attach:
+    needs: build-iso
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: swellos-iso
+          path: /tmp
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: /tmp/swellos-*.iso
+          generate_release_notes: true
+          fail_on_unmatched_files: false
