@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: SwellOS Documentation
+    url: https://swellos.github.io
+    about: Read the documentation before opening an issue
+  - name: GitHub Organization
+    url: https://github.com/SwellOS
+    about: Browse all SwellOS repositories
