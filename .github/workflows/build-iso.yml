@@ -39,27 +39,86 @@ jobs:
         with:
           repository: SwellOS/swell-build
           path: swell-build
+      - name: Checkout sbpm
+        uses: actions/checkout@v4
+        with:
+          repository: SwellOS/sbpm
+          path: sbpm
+      - name: Checkout supm
+        uses: actions/checkout@v4
+        with:
+          repository: SwellOS/supm
+          path: supm
       - name: Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
       - name: Build swell-build
         run: cd swell-build && cargo build --release
+      - name: Build sbpm
+        run: cd sbpm && cargo build --release
+      - name: Build supm
+        run: cd supm && cargo build --release
       - name: Busybox
         run: |
           sudo apt-get install -y -qq busybox-static
           cp /bin/busybox /tmp/busybox-static
       - name: Rootfs
         run: |
-          mkdir -p /tmp/iso-rootfs/{bin,sbin,etc,dev,proc,sys,run,tmp,var/lib,var/log,usr/bin,usr/sbin,root,etc/init.d}
+          mkdir -p /tmp/iso-rootfs/{bin,sbin,etc,dev,proc,sys,run,tmp,var/lib,var/log,usr/bin,usr/sbin,root,etc/init.d,lib/x86_64-linux-gnu,usr/share/udhcpc}
           cp /tmp/busybox-static /tmp/iso-rootfs/bin/busybox
-          for a in sh mount umount sleep cat echo ls mkdir cp mv rm ps kill dmesg vi clear login adduser deluser passwd reboot poweroff hostname ping ifconfig ip sed grep awk cut sort uniq head tail wc find xargs tar gzip; do
+          for a in sh mount umount sleep cat echo ls mkdir cp mv rm ps kill dmesg vi clear login adduser deluser passwd reboot poweroff hostname ping ifconfig ip sed grep awk cut sort uniq head tail wc find xargs tar gzip udhcpc; do
             ln -sf busybox /tmp/iso-rootfs/bin/$a
           done
           ln -sf ../bin/busybox /tmp/iso-rootfs/sbin/init
           echo -e '::sysinit:/etc/init.d/rcS\n::askfirst:-/bin/sh' > /tmp/iso-rootfs/etc/inittab
-          echo -e '#!/bin/sh\nmount -t proc none /proc\nmount -t sysfs none /sys\nmount -t devtmpfs none /dev\necho "Welcome to SwellOS"' > /tmp/iso-rootfs/etc/init.d/rcS
+          echo -e '#!/bin/sh\nmount -t proc none /proc\nmount -t sysfs none /sys\nmount -t devtmpfs none /dev\n\n# Network: DHCP on all ethernet interfaces\nfor iface in /sys/class/net/e*; do\n  [ -d "$iface" ] || continue\n  iface_name=$(basename "$iface")\n  ip link set "$iface_name" up\n  udhcpc -i "$iface_name" -s /usr/share/udhcpc/default.script -q 2>/dev/null &\ndone\n\necho "Welcome to SwellOS"' > /tmp/iso-rootfs/etc/init.d/rcS
           chmod 755 /tmp/iso-rootfs/etc/init.d/rcS
+
+          # sbpm + supm binaries
+          cp sbpm/target/release/sbpm /tmp/iso-rootfs/usr/bin/sbpm
+          cp supm/target/release/supm /tmp/iso-rootfs/usr/bin/supm
+
+          # sbpm depends: libssl, libcrypto, libbrotli, libzstd, libz, libgcc_s, libc, libm, ld-linux
+          for lib in \
+            /usr/lib/x86_64-linux-gnu/libssl.so.* \
+            /usr/lib/x86_64-linux-gnu/libcrypto.so.* \
+            /usr/lib/x86_64-linux-gnu/libbrotli*.so.* \
+            /usr/lib/x86_64-linux-gnu/libzstd.so.* \
+            /usr/lib/x86_64-linux-gnu/libz.so.* \
+            /usr/lib/x86_64-linux-gnu/libgcc_s.so.* \
+            /usr/lib/x86_64-linux-gnu/libm.so.* \
+            /lib/x86_64-linux-gnu/libc.so.* \
+            /lib/x86_64-linux-gnu/libm.so.* \
+            /lib/x86_64-linux-gnu/ld-linux-x86-64.so.*; do
+            for f in $lib; do
+              [ -f "$f" ] && cp -L "$f" /tmp/iso-rootfs/lib/x86_64-linux-gnu/
+            done
+          done
+
+          # udhcpc default script
+          if [ -f /usr/share/udhcpc/default.script ]; then
+            cp /usr/share/udhcpc/default.script /tmp/iso-rootfs/usr/share/udhcpc/default.script
+          else
+            cat > /tmp/iso-rootfs/usr/share/udhcpc/default.script << 'UEOF'
+#!/bin/sh
+case "$1" in
+  bound|renew)
+    ip addr add "$ip/$mask" dev "$interface" 2>/dev/null
+    [ -n "$router" ] && ip route add default via "$router"
+    echo "nameserver $dns" > /etc/resolv.conf 2>/dev/null
+    ;;
+  deconfig)
+    ip addr flush dev "$interface"
+    ;;
+esac
+UEOF
+          fi
+          chmod 755 /tmp/iso-rootfs/usr/share/udhcpc/default.script
+
+          # sbpm db directory
+          mkdir -p /tmp/iso-rootfs/var/lib/sbpm/installed
+          echo 'https://packages.swellos.org/repo.db' > /tmp/iso-rootfs/var/lib/sbpm/repo-url
       - name: Firmware
         run: |
           sudo apt-get install -y -qq linux-firmware
