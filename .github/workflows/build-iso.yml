@@ -41,6 +41,8 @@ jobs:
           path: swell-build
       - name: Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
       - name: Build swell-build
         run: cd swell-build && cargo build --release
       - name: Busybox
@@ -58,6 +60,14 @@ jobs:
           echo -e '::sysinit:/etc/init.d/rcS\n::askfirst:-/bin/sh' > /tmp/iso-rootfs/etc/inittab
           echo -e '#!/bin/sh\nmount -t proc none /proc\nmount -t sysfs none /sys\nmount -t devtmpfs none /dev\necho "Welcome to SwellOS"' > /tmp/iso-rootfs/etc/init.d/rcS
           chmod 755 /tmp/iso-rootfs/etc/init.d/rcS
+      - name: Firmware
+        run: |
+          sudo apt-get install -y -qq linux-firmware
+          mkdir -p /tmp/iso-rootfs/usr/lib/firmware
+          cp -r /usr/lib/firmware/iwlwifi-*.ucode* /tmp/iso-rootfs/usr/lib/firmware/ 2>/dev/null || true
+          for d in intel amdgpu ath10k ath11k ath12k rtw88 rtw89 rtl_bt rtl_nic rtlwifi brcm cypress mediatek qca qed intel-ucode; do
+            [ -d "/usr/lib/firmware/$d" ] && cp -r "/usr/lib/firmware/$d" /tmp/iso-rootfs/usr/lib/firmware/
+          done
       - name: Build ISO
         run: |
           VERSION="${{ github.event.inputs.version || '0.1-dev' }}"
